@@ -3,7 +3,7 @@ import resources
 import random
 import re
 
-from requestwrk import *
+from workers import *
 from groupview import *
 from strings import *
 

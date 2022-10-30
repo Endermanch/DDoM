@@ -1,6 +1,6 @@
 import pickle
 import sys
-import requestwrk
+import workers
 
 from windows import *
 from PyQt5.QtWidgets import *
