@@ -1,0 +1,25 @@
+<!DOCTYPE RCC><RCC version="1.0">
+<qresource>
+    <file alias="key.ico">resources/key.ico</file>
+    <file alias="help.ico">resources/help.ico</file>
+    <file alias="about.ico">resources/about.ico</file>
+    <file alias="url.ico">resources/url.ico</file>
+    <file alias="software.ico">resources/software.ico</file>
+    <file alias="export.ico">resources/export.ico</file>
+
+    <file alias="icon.png">resources/icon.png</file>
+    <file alias="logo.png">resources/logo.png</file>
+    <file alias="setup.png">resources/setup.png</file>
+
+    <file alias="mgen.png">resources/mgen.png</file>
+    <file alias="vt.png">resources/vt.png</file>
+    <file alias="anyrun.png">resources/anyrun.png</file>
+
+    <file alias="opened.png">resources/opened.png</file>
+    <file alias="closed.png">resources/closed.png</file>
+
+    <file alias="sample.png">resources/sample.png</file>
+
+    <file alias="search.gif">resources/search.gif</file>
+</qresource>
+</RCC>
