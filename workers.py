@@ -5,33 +5,40 @@ import pyzipper
 import time
 import re
 
+from utilities import *
 from strings import *
 from http.client import responses
 
 from PyQt5.QtWidgets import QMessageBox
-from PyQt5.QtCore import Qt, QThread, QObject, pyqtSignal
+from PyQt5.QtCore import Qt, QThread, QObject, QRunnable, pyqtSignal, pyqtSlot
 
 
 class SearchWorker(QObject):
     started = pyqtSignal()
     finished = pyqtSignal()
+    stopped = pyqtSignal()
 
-    def __init__(self, app, parent=None):
-        super(SearchWorker, self).__init__(parent)
+    def __init__(self, app):
+        super(SearchWorker, self).__init__()
 
         # Thread nitty-gritty
+        self.threads = {}
+        self.workers = {}
         self.thread_name = None
+        self.finished_count = 0
         self.app = app
 
+        self.request_wait_time = 5000
 
+        self.search_results = []
         self.samples_info = []
 
     def init_thread(self):
         self.thread_name = threading.current_thread().name
-        self.app.responses[self.thread_name] = None
+        #self.app.responses[self.thread_name] = None
 
         # Tell main thread we've started
-        self.started.emit()
+
 
     def parse_query(self):
         """Parse the search query and return a list of keywords"""
@@ -85,35 +92,47 @@ class SearchWorker(QObject):
 
         return request_batch
 
-    def append(self, samples_info):
-        """Append a new dictionary of samples to the list of them"""
-        self.samples_info.append(samples_info)
+    @pyqtSlot(object)
+    def wait(self, search_results):
+        self.finished_count += 1
 
-    def search(self):
-        self.init_thread()
+        if search_results is not None:
+            self.search_results += search_results
 
-        # Parse the search query, store keywords
-        request_batch = self.parse_query()
+        if self.finished_count == len(self.request_batch):
+            print("All request threads have finished.")
+            self.search2()
 
-        if request_batch is None:
-            self.finished.emit()
-            return
-
-        # Create threads for each request
-        for i, request in enumerate(request_batch):
-            self.app.create_thread(
-                f'Request-{i}',
-                RequestWorker(self.app, request, None),
-                [],
-                'search',
-                [self.append]
-            ).start()
-
-        # Wait for all threads to finish
-        for i in range(len(request_batch)):
-            self.app.threads[f'Request-{i}'].wait()
+    def search2(self):
+        print(f"Samples info:\n{self.search_results}")
+        # Remove duplicates (OR search)
+        self.samples_info = [i for n, i in enumerate(self.search_results) if i not in self.search_results[n + 1:]]
 
         self.retrieve()
+        self.finished.emit()
+
+    def search(self):
+        # Parse the search query, store keywords
+        print("Search thread started")
+
+        self.request_batch = self.parse_query()
+
+        if self.request_batch is None:
+            return self.finished.emit()
+
+        # Create threads for each request
+        for i, request in enumerate(self.request_batch):
+            self.workers[f'Request-{i}'] = RequestWorker(self.app, request, None)
+            self.threads[f'Request-{i}'] = create_thread(
+                self.workers[f'Request-{i}'],
+                [],
+                'search',
+                [self.wait]
+            )
+
+            self.threads[f'Request-{i}'].start()
+            # Implement a sleep function here (wait between requests, ratelimit)
+
 
     def retrieve(self):
         """Clean up after search"""
@@ -138,13 +157,17 @@ class SearchWorker(QObject):
             rows = root.rowCount()
 
             # Expand on demand
-            for root_items in range(rows):
-                if root.child(root_items).index().sibling(0, 1).data(Qt.DisplayRole) == "MalwareBazaar":
-                    if not self.app.group_view.isExpanded(root.child(root_items).index()):
-                        self.app.group_view.expand(root.child(root_items).index())
+            self.app.group_view.expandAll()
 
+            #for root_items in range(rows):
+            #    if root.child(root_items).index().sibling(0, 1).data(Qt.DisplayRole) == "MalwareBazaar":
+            #        if not self.app.group_view.isExpanded(root.child(root_items).index()):
+            #            self.app.group_view.expand(root.child(root_items).index())
+
+
+    def stop(self):
+        self.stopped.emit()
         self.finished.emit()
-
 
 class RequestWorker(QObject):
     started = pyqtSignal()
@@ -164,8 +187,8 @@ class RequestWorker(QObject):
         self.headers = {'API-KEY': self.api_key_bazaar}
 
         # Settings
-        self.timer_secs = 30
-        self.repeat_req = 3
+        self.request_timeout = 30
+        self.request_repeat = 3
 
         # Response
         self.response = None
@@ -187,16 +210,16 @@ class RequestWorker(QObject):
         start_time = time.time()
         response = None
 
-        for _ in range(self.repeat_req):
+        for _ in range(self.request_repeat):
             try:
                 response = requests.post('https://mb-api.abuse.ch/api/v1/',
-                                         data=self.request_info, timeout=self.timer_secs, headers=self.headers)
+                                         data=self.request_info, timeout=self.request_timeout, headers=self.headers)
                 break
             except requests.exceptions.Timeout as e:
-                if time.time() > start_time + self.timer_secs:
+                if time.time() > start_time + self.request_timeout:
                     response = e
                 else:
-                    time.sleep(self.timer_secs // 6)
+                    time.sleep(self.request_timeout // 6)
 
             except requests.exceptions.ConnectionError as e:
                 self.app.showMessage.emit(
@@ -223,7 +246,7 @@ class RequestWorker(QObject):
                 self.thread_name,
                 'critical',
                 'An error occured!',
-                f'API request failed with a timeout:\n\n{response}\n\nYou can adjust session timeout in settings or try again. Current value is {self.timer_secs} second(-s). The session has timed out a total of {self.repeat_req} time(-s).'
+                f'API request failed with a timeout:\n\n{response}\n\nYou can adjust session timeout in settings or try again. Current value is {self.request_timeout} second(-s). The session has timed out a total of {self.request_repeat} time(-s).'
             )
 
             return None
@@ -232,7 +255,7 @@ class RequestWorker(QObject):
 
     def search(self):
         """Search for a sample in MalwareBazaar."""
-
+        print("NESTED THREAD STARTED")
         self.init_thread()
 
         # Send a request to the API
@@ -269,15 +292,18 @@ class RequestWorker(QObject):
             ]
 
         # We found some samples, emit a signal to the main thread to display them
+        print("NESTED THREAD FINISHED")
         self.finished.emit(samples_info)
 
     def download(self):
         """Download a sample from MalwareBazaar."""
-
         self.init_thread()
+        print("Download thread created")
 
         # Send a request to the API
         response = self.send_request()
+
+        print("Response received")
 
         if 'file_not_found' in response.text:
             self.app.showMessage.emit(
@@ -289,6 +315,7 @@ class RequestWorker(QObject):
 
             self.finished.emit(None)
         else:
+            print(f"Downloading file {self.additional_info['sha256_hash']}")
             with open(f"{PATH}/{self.additional_info['sha256_hash']}.zip", 'wb') as file:
                 bytes_downloaded = 0
                 bytes_total = self.additional_info['file_size']
@@ -306,6 +333,8 @@ class RequestWorker(QObject):
             self.app.updateProgress.emit(100)
             time.sleep(1)
             self.app.updateProgress.emit(0)
+
+        print("Download thread exited")
 
     def export(self):
         pass

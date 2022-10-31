@@ -6,27 +6,13 @@ import re
 from workers import *
 from groupview import *
 from strings import *
+from utilities import *
 
 from functools import partial
 
 from PyQt5.QtCore import *
 from PyQt5.QtWidgets import *
 from PyQt5.QtGui import *
-
-def getSignal(qobject: QObject, signal_name: str):
-    meta_object = qobject.metaObject()
-
-    for i in range(meta_object.methodCount()):
-        meta_method = meta_object.method(i)
-
-        if not meta_method.isValid():
-            continue
-
-        if meta_method.methodType() == QMetaMethod.Signal and \
-                meta_method.name() == signal_name:
-            return meta_method
-
-    return None
 
 class Window(QMainWindow):
     def __init__(self, width, height, title, icon, parent=None):
@@ -227,6 +213,7 @@ class MainWindow(Window):
     parseRequest = pyqtSignal(str, str)
     showMessage = pyqtSignal(str, str, str, str)
     updateProgress = pyqtSignal(int)
+    stopSearch = pyqtSignal()
 
     def __init__(self):
         # Call the parent constructor
@@ -262,9 +249,6 @@ class MainWindow(Window):
         self.updateProgress.connect(self.update_progress)
 
         self.samples_info = None
-
-    def dummy(self):
-        pass
 
     @staticmethod
     def spawn_about():
@@ -398,36 +382,6 @@ class MainWindow(Window):
             REQUEST_STRINGS[error_name]['message'],
         )
 
-    def destroy_thread(self, name):
-        del self.workers[name]
-        del self.threads[name]
-
-    def create_thread(self, name, worker, prefunctions, thrfunction, endfunctions):
-        """Create a thread."""
-
-        # Create thread and worker objects
-        self.threads[name] = QThread()
-        self.workers[name] = worker
-
-        # Move worker to thread (POSITIONING is important)
-        self.workers[name].moveToThread(self.threads[name])
-
-        # Connect thread signals and slots
-        self.threads[name].started.connect(getattr(self.workers[name], thrfunction))
-        self.threads[name].finished.connect(self.threads[name].deleteLater)
-        self.threads[name].finished.connect(self.workers[name].deleteLater)
-
-        for function in prefunctions:
-            self.workers[name].started.connect(function)
-
-        # Thread finished
-        self.workers[name].finished.connect(self.threads[name].quit)
-
-        for function in endfunctions:
-            self.workers[name].finished.connect(function)
-
-        return self.threads[name]
-
     def update_progress(self, progress):
         self.download_button.setEnabled(False)
         self.download_progress.setValue(progress)
@@ -452,26 +406,46 @@ class MainWindow(Window):
 
         self.search_anim.hide()
 
+    def dummy(self):
+        print("Thread successfully finished")
+
     def search(self):
         """Search for a tag or signature with a limit."""
-        self.create_thread(
-            'Search',
-            SearchWorker(self),
+        self.workers['Search'] = SearchWorker(self)
+        self.threads['Search'] = create_thread(
+            self.workers['Search'],
             [self.start_loading],
             'search',
-            [self.end_loading]
+            [self.end_loading, self.dummy]
         )
 
-        # Start thread
         self.threads['Search'].start()
+
+        """thread = self.thread = QThread()
+        worker = self.worker = SearchWorker(self)
+        worker.moveToThread(thread)
+
+        worker.finished.connect(worker.deleteLater)
+        worker.finished.connect(thread.quit)
+        worker.finished.connect(self.end_loading)
+        worker.finished.connect(self.dummy)
+
+        thread.started.connect(self.start_loading)
+        thread.started.connect(worker.search)
+
+        thread.start()"""
+
+        #self.stopSearch.connect(self.workers['Search'].stop)
+
+        # Start thread
+        #self.threads['Search'].start()
 
     def search_stop(self):
         """Stop the search"""
+        self.stopSearch.emit()
 
-        self.workers['Search'].finished.emit()
-        self.workers['Search'].finished.disconnect()
-
-        self.destroy_thread('Search')
+        del self.threads['Search']
+        del self.workers['Search']
 
     def download(self, index):
         """Download the selected sample"""
@@ -482,13 +456,15 @@ class MainWindow(Window):
         }
 
         # Create thread
-        self.create_thread(
-            'Download',
-            RequestWorker(self, request_info, self.samples_info[index]),
+        self.workers['Download'] = RequestWorker(self, request_info, self.samples_info[index])
+        self.threads['Download'] = create_thread(
+            self.workers['Download'],
             [],
             'download',
             []
-        ).start()
+        )
+
+        self.threads['Download'].start()
 
     @pyqtSlot(QResizeEvent)
     def resizeEvent(self, event):
@@ -505,6 +481,11 @@ class MainWindow(Window):
         self.search_button.move(
             new_right - self.search_button.width(),
             self.search_button.geometry().top()
+        )
+
+        self.search_button_cancel.move(
+            new_right - self.search_button_cancel.width(),
+            self.search_button_cancel.geometry().top()
         )
 
         self.group_view.resize(
