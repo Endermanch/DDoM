@@ -1,4 +1,5 @@
 import webbrowser
+import pathlib
 import resources
 import random
 import re
@@ -248,7 +249,7 @@ class MainWindow(Window):
         self.showMessage.connect(self.show_message_box)
         self.updateProgress.connect(self.update_progress)
 
-        self.samples_info = None
+        self.search_table = None
 
     @staticmethod
     def spawn_about():
@@ -341,16 +342,18 @@ class MainWindow(Window):
 
         self.group_view.beginDownload.connect(self.download)
 
-        # Set loading icon
+        # Loading animation (centered against the group view)
         self.search_anim = QLabel(self)
+        self.search_anim.setAlignment(Qt.AlignCenter)
 
         anim_source = QMovie(":search.gif")
         anim_source.start()
 
         self.search_anim.setMovie(anim_source)
-        self.search_anim.resize(200, 200)
-        self.search_anim.move(self.width // 2 - 100, self.height // 2 - 100)
         self.search_anim.hide()
+
+        group_layout = QVBoxLayout(self.group_view)
+        group_layout.addWidget(self.search_anim)
 
         # Download progress
         self.download_progress = QProgressBar(self)
@@ -387,8 +390,12 @@ class MainWindow(Window):
         self.download_progress.setValue(progress)
 
     def start_loading(self):
+        # Turn on the search box
         if self.search_box.isSignalConnected(getSignal(self.search_box, 'returnPressed')):
             self.search_box.returnPressed.disconnect(self.search_button.click)
+
+        # Start loading animation
+        self.group_view.setEnabled(False)
 
         self.search_button.setVisible(False)
         self.search_button_cancel.setVisible(True)
@@ -401,7 +408,10 @@ class MainWindow(Window):
             self.search_box.returnPressed.connect(self.search_button.click)
 
         # Stop loading animation
+        self.group_view.setEnabled(True)
+
         self.search_button.setVisible(True)
+        self.search_button_cancel.setEnabled(True)
         self.search_button_cancel.setVisible(False)
 
         self.search_anim.hide()
@@ -442,21 +452,22 @@ class MainWindow(Window):
 
     def search_stop(self):
         """Stop the search"""
-        self.stopSearch.emit()
+        self.search_button_cancel.setEnabled(False)
+        self.workers['Search'].stopped.emit()
 
-        del self.threads['Search']
-        del self.workers['Search']
+        #del self.threads['Search']
+        #del self.workers['Search']
 
     def download(self, index):
         """Download the selected sample"""
 
         request_info = {
             'query': 'get_file',
-            'sha256_hash': self.samples_info[index]['sha256_hash']
+            'sha256_hash': self.search_table[index]['sha256_hash']
         }
 
         # Create thread
-        self.workers['Download'] = RequestWorker(self, request_info, self.samples_info[index])
+        self.workers['Download'] = RequestWorker(self, request_info, self.search_table[index])
         self.threads['Download'] = create_thread(
             self.workers['Download'],
             [],

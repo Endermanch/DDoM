@@ -27,10 +27,29 @@ TREE_HEADER = {
     'Tags': 100
 }
 
-# Connect filters to appropriate requests
-FILTERS = {
+# Connect queries to satisfy request syntax
+API_QUERIES = {
     'signature': 'get_siginfo',
-    'tag': 'get_taginfo'
+    'tag': 'get_taginfo',
+    'file_type': 'get_file_type',
+    'hash': 'get_info'
+}
+
+# Approved filters
+API_FILTERS = {
+    'sig': 'signature',
+    'sign': 'signature',
+    'signature': 'signature',
+    'tag': 'tag',
+    'type': 'file_type',
+    'ft': 'file_type',
+    'filetype': 'file_type',
+    'file_type': 'file_type',
+    'sha256': 'hash',
+    'sha-256': 'hash',
+    'sha': 'hash',
+    'hash': 'hash',
+    'limit': 'limit'
 }
 
 # About
@@ -67,7 +86,7 @@ REQUEST_STRINGS = {
     'illegal_query': {
         'severity': "warning",
         'title': "Wrong search query",
-        'message': "Please input at least one of the keywords to search for."
+        'message': "The search query syntax is incorrect. Please try again."
     },
 
     # MalwareBazaar API
@@ -91,5 +110,11 @@ REQUEST_STRINGS = {
         'severity': "warning",
         'title': "Warning",
         'message': "API Request Warning: Illegal signature or signature not found.\nSignatures can't be empty and must be alphanumeric. Please correct your search query."
+    },
+
+    'illegal_hash': {
+        'severity': "warning",
+        'title': "Warning",
+        'message': "API Request Warning: Illegal hash or hash not found.\nHashes can't be empty and must be alphanumeric. Please correct your search query."
     },
 }

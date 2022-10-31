@@ -1,4 +1,3 @@
-import pathlib
 import threading
 import requests
 import pyzipper
@@ -9,8 +8,7 @@ from utilities import *
 from strings import *
 from http.client import responses
 
-from PyQt5.QtWidgets import QMessageBox
-from PyQt5.QtCore import Qt, QThread, QObject, QRunnable, pyqtSignal, pyqtSlot
+from PyQt5.QtCore import QThread, QObject, pyqtSignal, pyqtSlot
 
 
 class SearchWorker(QObject):
@@ -22,23 +20,21 @@ class SearchWorker(QObject):
         super(SearchWorker, self).__init__()
 
         # Thread nitty-gritty
-        self.threads = {}
-        self.workers = {}
         self.thread_name = None
         self.finished_count = 0
+        self.threads = {}
+        self.workers = {}
+
+        # Save the main application pointer
         self.app = app
 
+        # Settings
         self.request_wait_time = 5000
+        self.limit = 100
 
+        # Search results
         self.search_results = []
-        self.samples_info = []
-
-    def init_thread(self):
-        self.thread_name = threading.current_thread().name
-        #self.app.responses[self.thread_name] = None
-
-        # Tell main thread we've started
-
+        self.search_table = []
 
     def parse_query(self):
         """Parse the search query and return a list of keywords"""
@@ -49,48 +45,85 @@ class SearchWorker(QObject):
         # Split the query into keywords and store them in a dictionary
         key_matches = {}
 
+        # For each keyword separated by a space filter them out
         for items in search_query.split(' '):
             cfilter = items.split(':')
 
+            if len(cfilter) < 2:
+                return
+
+            keyword = cfilter[0]
+            value = cfilter[1]
+
             # If there are multiple colons in a single keyword or the keyword isn't approved, search for the next keyword
-            if len(cfilter) > 2 or cfilter[0] not in FILTERS.keys():
+            if len(cfilter) > 2 or keyword not in API_FILTERS.keys():
                 continue
 
-            # If the keyword is approved and the syntax is correct, add it to the list
-            if cfilter[1].startswith('"') and cfilter[1].endswith('"') and len(cfilter[1]) > 1:
-                cfilter[1] = cfilter[1][1:-1]
-                key_matches[cfilter[0]] = cfilter[1]
+            match API_FILTERS[keyword]:
+                case 'limit':
+                    self.limit = int(value)
 
-        # old
-        limit_match = re.search(r"limit:(\d+)", search_query)  # likely a different function to be wrapped
+            # If the keyword is approved and the syntax is correct, add it to the list
+            if value.startswith('"') and value.endswith('"') and len(value) > 1:
+                value = value[1:-1]
+                key_matches[keyword] = value
+
 
         # Check if at least one filter was found
         if not key_matches:
             self.app.parseRequest.emit('illegal_query', self.thread_name)
             return None
 
-        # Old
-        if limit_match is None:
-            limit = '100'
-        else:
-            limit = limit_match.group(1)
+        # API limitation
+        if self.limit > 1000:
+            self.limit = 1000
 
-            # API limitation
-            if int(limit) > 1000:
-                limit = 1000
+        request_batch = []
 
         # Assemble the request batch to be sent to the API
-        request_batch = [
-            {
-                'query': FILTERS[key],
-                key: value,
-                'limit': limit
-            }
+        for key, value in key_matches.items():
+            for name in value.split(','):
+                request_batch.append({
+                    'query': API_QUERIES[API_FILTERS[key]],
+                    API_FILTERS[key]: name,
+                    'limit': self.limit
+                })
 
-            for key, value in key_matches.items()
-        ]
+        # Tidy up the request for hash
+        for request in request_batch:
+            if request['query'] == 'hash':
+                del request['limit']
 
+        # Return a request batch
         return request_batch
+
+    def search(self):
+        print("Search thread started")
+
+        # Parse the search query, store keywords
+        self.request_batch = self.parse_query()
+
+        # If there are no keywords, exit the thread
+        if self.request_batch is None:
+            return self.finished.emit()
+
+        # Create threads for each request
+        for i, request in enumerate(self.request_batch):
+            worker = self.workers[f'Request-{i}'] = RequestWorker(self.app, request, None)
+
+            self.stopped.connect(worker.stop)
+
+            thread = self.threads[f'Request-{i}'] = QThread()
+
+            worker.moveToThread(thread)
+            worker.finished.connect(worker.deleteLater)
+            worker.finished.connect(thread.quit)
+            worker.finished.connect(self.wait)
+
+            thread.started.connect(worker.search)
+            thread.finished.connect(thread.deleteLater)
+
+            thread.start()
 
     @pyqtSlot(object)
     def wait(self, search_results):
@@ -101,73 +134,48 @@ class SearchWorker(QObject):
 
         if self.finished_count == len(self.request_batch):
             print("All request threads have finished.")
-            self.search2()
+            self.parse_data()
 
-    def search2(self):
+    def parse_data(self):
         print(f"Samples info:\n{self.search_results}")
         # Remove duplicates (OR search)
-        self.samples_info = [i for n, i in enumerate(self.search_results) if i not in self.search_results[n + 1:]]
+        self.search_table = [i for n, i in enumerate(self.search_results) if i not in self.search_results[n + 1:]]
 
         self.retrieve()
         self.finished.emit()
 
-    def search(self):
-        # Parse the search query, store keywords
-        print("Search thread started")
-
-        self.request_batch = self.parse_query()
-
-        if self.request_batch is None:
-            return self.finished.emit()
-
-        # Create threads for each request
-        for i, request in enumerate(self.request_batch):
-            self.workers[f'Request-{i}'] = RequestWorker(self.app, request, None)
-            self.threads[f'Request-{i}'] = create_thread(
-                self.workers[f'Request-{i}'],
-                [],
-                'search',
-                [self.wait]
-            )
-
-            self.threads[f'Request-{i}'].start()
-            # Implement a sleep function here (wait between requests, ratelimit)
-
-
     def retrieve(self):
         """Clean up after search"""
-        self.app.samples_info = self.samples_info
+        self.app.search_table = self.search_table
 
-        if self.samples_info is not None:
-            # Remove previous search results
-            self.app.model.removeRows(0, self.app.model.rowCount())
+        if self.search_table is None or not self.search_table:
+            return
 
-            # Create appropriate group
-            section = self.app.model.get_group('MalwareBazaar')
+        # Remove previous search results
+        self.app.model.removeRows(0, self.app.model.rowCount())
 
-            if section is None:
-                section = self.app.model.add_group('MalwareBazaar')
+        # Get appropriate group, if it doesn't exist, create
+        section = self.app.model.get_group('MalwareBazaar')
 
-            # Populate it with samples (post process it)
-            for sample in self.samples_info:
-                self.app.model.append_element(section, sample)
+        if section is None:
+            section = self.app.model.add_group('MalwareBazaar')
 
-            # Acquire the groups
-            root = self.app.model.invisibleRootItem()
-            rows = root.rowCount()
+        # Populate it with samples (post process it)
+        for sample in self.search_table:
+            self.app.model.append_element(section, sample)
 
-            # Expand on demand
-            self.app.group_view.expandAll()
+        # Acquire the groups
+        root = self.app.model.invisibleRootItem()
+        rows = root.rowCount()
 
-            #for root_items in range(rows):
-            #    if root.child(root_items).index().sibling(0, 1).data(Qt.DisplayRole) == "MalwareBazaar":
-            #        if not self.app.group_view.isExpanded(root.child(root_items).index()):
-            #            self.app.group_view.expand(root.child(root_items).index())
+        # Expand on demand
+        self.app.group_view.expandAll()
 
+        #for root_items in range(rows):
+        #    if root.child(root_items).index().sibling(0, 1).data(Qt.DisplayRole) == "MalwareBazaar":
+        #        if not self.app.group_view.isExpanded(root.child(root_items).index()):
+        #            self.app.group_view.expand(root.child(root_items).index())
 
-    def stop(self):
-        self.stopped.emit()
-        self.finished.emit()
 
 class RequestWorker(QObject):
     started = pyqtSignal()
@@ -187,7 +195,7 @@ class RequestWorker(QObject):
         self.headers = {'API-KEY': self.api_key_bazaar}
 
         # Settings
-        self.request_timeout = 30
+        self.request_timeout = 5
         self.request_repeat = 3
 
         # Response
@@ -350,3 +358,7 @@ class RequestWorker(QObject):
             zf.pwd = zip_password
             my_secrets = zf.extractall(".")
             print("Malicious sample \"" + sha256_hash + "\" unpacked.")
+
+    def stop(self):
+        print("Request thread received stop signal")
+        self.finished.emit(None)
