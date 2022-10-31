@@ -458,13 +458,19 @@ class MainWindow(Window):
         #del self.threads['Search']
         #del self.workers['Search']
 
-    def download(self, index):
+    def download(self, sha256_hash):
         """Download the selected sample"""
 
         request_info = {
             'query': 'get_file',
-            'sha256_hash': self.search_table[index]['sha256_hash']
+            'sha256_hash': sha256_hash
         }
+
+        index = 0
+
+        for i, item in enumerate(self.search_table):
+            if item['sha256_hash'] == sha256_hash:
+                index = i
 
         # Create thread
         self.workers['Download'] = RequestWorker(self, request_info, self.search_table[index])

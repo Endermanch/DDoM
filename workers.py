@@ -195,7 +195,7 @@ class RequestWorker(QObject):
         self.headers = {'API-KEY': self.api_key_bazaar}
 
         # Settings
-        self.request_timeout = 5
+        self.request_timeout = 30
         self.request_repeat = 3
 
         # Response

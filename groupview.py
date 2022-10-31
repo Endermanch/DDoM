@@ -29,7 +29,7 @@ class IconDelegate(QStyledItemDelegate):
 
 
 class GroupView(QTreeView):
-    beginDownload = pyqtSignal(int)
+    beginDownload = pyqtSignal(str)
 
     def __init__(self, model, parent=None):
         super(GroupView, self).__init__(parent)
@@ -90,7 +90,9 @@ class GroupView(QTreeView):
             expander = index.siblingAtColumn(list(TREE_HEADER.keys()).index(''))
             self.setExpanded(expander, not self.isExpanded(expander))
         else:
-            self.beginDownload.emit(index.row())
+            self.beginDownload.emit(
+                index.siblingAtColumn(list(TREE_HEADER.keys()).index('SHA-256')).data(Qt.DisplayRole)
+            )
 
     @pyqtSlot(QPoint)
     def on_context_menu(self, pos):
@@ -113,6 +115,10 @@ class GroupView(QTreeView):
                     text = data.data()
 
             pyperclip.copy(str(text))
+
+
+class GroupSort(QSortFilterProxyModel):
+    pass
 
 
 class GroupModel(QStandardItemModel):
