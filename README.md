@@ -13,13 +13,13 @@ Search syntax:
 The limit keyword is optional: if you don't specify it, it will default to the value of **100**.
 To begin the search, you must specify at least one filter.
 
-Filters   | Alias(-es)            | Represents       | Type
---------- | --------------------- | ---------------- | ------
-tag       | None                  | Tag              | "%s,%s,..."
-signature | sig, sign             | Signature        | "%s,%s,..."
-file_type | ft, type, filetype    | File Type        | "%s,%s,..."
-hash      | sha, sha256, sha-256  | SHA-256          | "%s,%s,..."
-limit     | None                  | Samples to find  | "%d"
+| Filters   | Alias(-es)            | Represents      | Type        |
+|-----------|-----------------------|-----------------|-------------|
+| tag       | None                  | Tag             | "%s,%s,..." |
+| signature | sig, sign             | Signature       | "%s,%s,..." |
+| file_type | ft, type, filetype    | File Type       | "%s,%s,..." |
+| hash      | sha, sha256, sha-256  | SHA-256         | "%s,%s,..." |
+| limit     | None                  | Samples to find | "%d"        |
 
 You may use filters themselves or their aliases as arguments in the search box.
 Please note that the whitespace is treated as a separator and you must only use it in between the keywords.
@@ -59,7 +59,7 @@ The interface will inevitably change, but the skeleton on the screenshot will re
 ## Requirements
 Daily Dose of Malware is written in an interpretable language, therefore **crossplatform**. It was thoroughly tested only on Windows 10, but should run on any Linux distro and OSX just fine.
 * Python 3.10 and higher
-* Python dependencies:
+* Python dependencies (listed in requirements.txt):
 
   ```python
   import pyqt5
