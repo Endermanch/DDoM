@@ -83,10 +83,37 @@ MANUAL_PAGES = {
 # API request messages (dictionary of dictionaries)
 REQUEST_STRINGS = {
     # Own error API
+    'unknown_error': {
+        'severity': "critical",
+        'title': "An error occured!",
+        'message': "Unknown error."
+    },
+    'no_query': {
+        'severity': "information",
+        'title': "No search query",
+        'message': "You did not specify any keyword to search for. Please try again."
+    },
     'illegal_query': {
         'severity': "warning",
         'title': "Wrong search query",
         'message': "The search query syntax is incorrect. Please try again."
+    },
+
+    # Requests
+    'connection_error': {
+        'severity': 'critical',
+        'title': 'An error occured!',
+        'message': 'Connection error:\n\n%s\n\nPlease check your Internet connection and try again.'
+    },
+    'http_error': {
+        'severity': 'critical',
+        'title': 'An error occured!',
+        'message': 'HTTP Error %s: %s\nPlease try again in a little bit.'
+    },
+    'timeout': {
+        'severity': 'critical',
+        'title': 'An error occured!',
+        'message': 'API request failed with a timeout:\n\n%s\n\nYou can adjust session timeout in settings or try again. Current value is %s second(-s). The session has timed out a total of %s time(-s).'
     },
 
     # MalwareBazaar API

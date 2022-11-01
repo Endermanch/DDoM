@@ -22,7 +22,7 @@ To begin the search, you must specify at least one filter.
 | limit     | None                  | Samples to find | "%d"        |
 
 You may use filters themselves or their aliases as arguments in the search box.
-Please note that the whitespace is treated as a separator and you must only use it in between the keywords.
+Please note that the whitespace is treated as a separator, and you must only use it in between the keywords.
 
 <details>
   <summary>I didn't quite understand the types...</summary>

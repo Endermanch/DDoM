@@ -21,6 +21,7 @@ class SearchWorker(QObject):
 
         # Thread nitty-gritty
         self.thread_name = None
+        self.thread_end = False
         self.finished_count = 0
         self.threads = {}
         self.workers = {}
@@ -40,7 +41,11 @@ class SearchWorker(QObject):
         """Parse the search query and return a list of keywords"""
 
         # Receive search query from the box
-        search_query = self.app.search_box.text()
+        search_query = " ".join(self.app.search_box.text().split())
+
+        if not search_query:
+            self.error('no_query', None)
+            return None
 
         # Split the query into keywords and store them in a dictionary
         key_matches = {}
@@ -64,15 +69,12 @@ class SearchWorker(QObject):
                     self.limit = int(value)
 
             # If the keyword is approved and the syntax is correct, add it to the list
-            if value.startswith('"') and value.endswith('"') and len(value) > 1:
+            if value.startswith('"') and value.endswith('"') and len(value) > 2:
                 value = value[1:-1]
-                key_matches[keyword] = value
-
+                key_matches[API_FILTERS[keyword]] = value
 
         # Check if at least one filter was found
         if not key_matches:
-            time.sleep(0.5)
-            self.app.parseRequest.emit('illegal_query', self.thread_name)
             return None
 
         # API limitation
@@ -99,28 +101,46 @@ class SearchWorker(QObject):
         # Return a request batch
         return request_batch
 
+    def error(self, error_name, error_info):
+        if not self.thread_end:
+            time.sleep(0.5)
+            self.app.parseRequest.emit(error_name, self.thread_name)
+
+        for thread in self.threads.values():
+            self.stopped.emit()
+
+    def stop(self):
+        self.thread_end = True
+        self.finished.emit()
+
     def search(self):
         print("Search thread started")
-
+        self.app.responses[self.thread_name] = None
         # Parse the search query, store keywords
         self.request_batch = self.parse_query()
 
         # If there are no keywords, exit the thread
         if self.request_batch is None:
+            self.error('illegal_query', None)
+
             return self.finished.emit()
 
         # Create threads for each request
         for i, request in enumerate(self.request_batch):
             worker = self.workers[f'Request-{i}'] = RequestWorker(self.app, request, None, i * self.request_wait_time)
-
-            self.stopped.connect(worker.stop)
-
             thread = self.threads[f'Request-{i}'] = QThread()
+
+            self.finished.connect(worker.stop)
 
             worker.moveToThread(thread)
             worker.finished.connect(worker.deleteLater)
             worker.finished.connect(thread.quit)
             worker.finished.connect(self.wait)
+
+            worker.errored.connect(worker.deleteLater)
+            worker.errored.connect(thread.quit)
+            worker.errored.connect(self.error)
+            worker.errored.connect(self.stop)
 
             thread.started.connect(worker.search)
             thread.finished.connect(thread.deleteLater)
@@ -139,7 +159,6 @@ class SearchWorker(QObject):
             self.parse_data()
 
     def parse_data(self):
-        print(f"Samples info:\n{self.search_results}")
         # Remove duplicates (OR search)
         self.search_table = [i for n, i in enumerate(self.search_results) if i not in self.search_results[n + 1:]]
 
@@ -181,6 +200,7 @@ class SearchWorker(QObject):
 
 class RequestWorker(QObject):
     started = pyqtSignal()
+    errored = pyqtSignal(str, object)
     finished = pyqtSignal(object)
 
     def __init__(self, app, request_info, additional_info, request_wait_time):
@@ -211,6 +231,10 @@ class RequestWorker(QObject):
         time.sleep(self.wait_time / 1000)
         self.started.emit()
 
+    def error(self, error_name, error_info):
+        self.errored.emit(error_name, error_info)
+        self.finished.emit(None)
+
     def send_request(self):
         """
             Send an API request to MalwareBazaar.
@@ -233,34 +257,13 @@ class RequestWorker(QObject):
                     time.sleep(self.request_timeout // 6)
 
             except requests.exceptions.ConnectionError as e:
-                self.app.showMessage.emit(
-                    self.thread_name,
-                    'critical',
-                    'An error occured!',
-                    f'Connection error:\n\n{e}\n\nPlease check your Internet connection and try again.'
-                )
+                return self.errored.emit('connection_error', (e))
 
-                return None
-
-            except requests.exceptions.HTTPError as e:
-                self.app.showMessage.emit(
-                    self.thread_name,
-                    'critical',
-                    'An error occured!',
-                    f'HTTP Error {response.status_code}: {responses[response.status_code]}\nPlease try again in a little bit.'
-                )
-
-                return None
+            except requests.exceptions.HTTPError:
+                return self.errored.emit('http_error', (response.status_code))
 
         if isinstance(response, requests.exceptions.Timeout):
-            self.app.showMessage.emit(
-                self.thread_name,
-                'critical',
-                'An error occured!',
-                f'API request failed with a timeout:\n\n{response}\n\nYou can adjust session timeout in settings or try again. Current value is {self.request_timeout} second(-s). The session has timed out a total of {self.request_repeat} time(-s).'
-            )
-
-            return None
+            return self.errored.emit('timeout', (response, self.request_timeout, self.request_repeat))
 
         return response
 
@@ -279,11 +282,11 @@ class RequestWorker(QObject):
 
         # If query status is OK, parse the response into a resulting list of tuples
         if self.response['query_status'] != 'ok':
-            # Emit a signal to the main thread to reset the animation
-            self.finished.emit(None)
-
             # Emit a signal to the main thread to display an error message
-            return self.app.parseRequest.emit(self.response['query_status'], self.thread_name)
+            self.errored.emit(self.response['query_status'], None)
+
+            # Emit a signal to the main thread to reset the animation
+            return self.finished.emit(None)
         else:
             # Generate a list of dictionaries from the response
             samples_info = [

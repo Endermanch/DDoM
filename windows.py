@@ -381,6 +381,9 @@ class MainWindow(Window):
     def parse_message(self, error_name, thread=None):
         """Parses the request response and shows a messagebox."""
 
+        if error_name not in REQUEST_STRINGS.keys():
+            error_name = 'unknown_error'
+
         self.show_message_box(
             thread,
             REQUEST_STRINGS[error_name]['severity'],
@@ -456,7 +459,7 @@ class MainWindow(Window):
     def search_stop(self):
         """Stop the search"""
         self.search_button_cancel.setEnabled(False)
-        self.workers['Search'].stopped.emit()
+        self.workers['Search'].stop()
 
         #del self.threads['Search']
         #del self.workers['Search']
