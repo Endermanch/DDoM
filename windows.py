@@ -14,6 +14,7 @@ from functools import partial
 from PyQt5.QtCore import *
 from PyQt5.QtWidgets import *
 from PyQt5.QtGui import *
+# Basic safety
 
 class Window(QMainWindow):
     def __init__(self, width, height, title, icon, parent=None):
@@ -335,6 +336,8 @@ class MainWindow(Window):
 
         # Set table model (fill with data)
         self.model = GroupModel(self)
+        self.model.setSortRole(Qt.UserRole)
+
         self.group_view = GroupView(self.model, parent=self)
 
         self.group_view.move(self.left, self.top + 60)
@@ -466,6 +469,7 @@ class MainWindow(Window):
             'sha256_hash': sha256_hash
         }
 
+        # Find the sample with the given hash in the list
         index = 0
 
         for i, item in enumerate(self.search_table):

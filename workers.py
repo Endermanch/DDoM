@@ -29,7 +29,7 @@ class SearchWorker(QObject):
         self.app = app
 
         # Settings
-        self.request_wait_time = 5000
+        self.request_wait_time = 1000
         self.limit = 100
 
         # Search results
@@ -71,6 +71,7 @@ class SearchWorker(QObject):
 
         # Check if at least one filter was found
         if not key_matches:
+            time.sleep(0.5)
             self.app.parseRequest.emit('illegal_query', self.thread_name)
             return None
 
@@ -83,11 +84,12 @@ class SearchWorker(QObject):
         # Assemble the request batch to be sent to the API
         for key, value in key_matches.items():
             for name in value.split(','):
-                request_batch.append({
-                    'query': API_QUERIES[API_FILTERS[key]],
-                    API_FILTERS[key]: name,
-                    'limit': self.limit
-                })
+                if name:
+                    request_batch.append({
+                        'query': API_QUERIES[API_FILTERS[key]],
+                        API_FILTERS[key]: name,
+                        'limit': self.limit
+                    })
 
         # Tidy up the request for hash
         for request in request_batch:
@@ -109,7 +111,7 @@ class SearchWorker(QObject):
 
         # Create threads for each request
         for i, request in enumerate(self.request_batch):
-            worker = self.workers[f'Request-{i}'] = RequestWorker(self.app, request, None)
+            worker = self.workers[f'Request-{i}'] = RequestWorker(self.app, request, None, i * self.request_wait_time)
 
             self.stopped.connect(worker.stop)
 
@@ -181,7 +183,7 @@ class RequestWorker(QObject):
     started = pyqtSignal()
     finished = pyqtSignal(object)
 
-    def __init__(self, app, request_info, additional_info):
+    def __init__(self, app, request_info, additional_info, request_wait_time):
         super().__init__()
 
         # Thread nitty-gritty
@@ -197,7 +199,7 @@ class RequestWorker(QObject):
         # Settings
         self.request_timeout = 30
         self.request_repeat = 3
-
+        self.wait_time = request_wait_time
         # Response
         self.response = None
 
@@ -206,6 +208,7 @@ class RequestWorker(QObject):
         self.app.responses[self.thread_name] = None
 
         # Tell main thread we've started
+        time.sleep(self.wait_time / 1000)
         self.started.emit()
 
     def send_request(self):
@@ -263,8 +266,8 @@ class RequestWorker(QObject):
 
     def search(self):
         """Search for a sample in MalwareBazaar."""
-        print("NESTED THREAD STARTED")
         self.init_thread()
+        print("NESTED THREAD STARTED")
 
         # Send a request to the API
         response = self.send_request()

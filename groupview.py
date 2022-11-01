@@ -133,6 +133,13 @@ class GroupModel(QStandardItemModel):
 
         self.root_item = None
 
+    def data(self, index, role=Qt.DisplayRole):
+        if role == Qt.UserRole:
+            if index.column() == list(TREE_HEADER.keys()).index('DL'):
+                print("sort NOW")
+
+        return super(GroupModel, self).data(index, role)
+
     def add_group(self, group_name):
         self.root_item = QStandardItem()
 
