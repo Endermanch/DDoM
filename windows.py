@@ -480,7 +480,7 @@ class MainWindow(Window):
                 index = i
 
         # Create thread
-        self.workers['Download'] = RequestWorker(self, request_info, self.search_table[index])
+        self.workers['Download'] = RequestWorker(self, request_info, self.search_table[index], 1000)
         self.threads['Download'] = create_thread(
             self.workers['Download'],
             [],
