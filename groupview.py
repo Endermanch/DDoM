@@ -34,6 +34,8 @@ class GroupView(QTreeView):
     def __init__(self, model, parent=None):
         super(GroupView, self).__init__(parent)
 
+        self.model = model
+
         self.setModel(model)
         self.setHeader(QHeaderView(Qt.Horizontal, self))
 
@@ -51,8 +53,8 @@ class GroupView(QTreeView):
         self.setSortingEnabled(True)
 
         # Edit / selection
+        self.setSelectionMode(QAbstractItemView.MultiSelection)
         self.setEditTriggers(QAbstractItemView.NoEditTriggers)
-        self.setSelectionMode(QAbstractItemView.SingleSelection)
         self.setSelectionBehavior(QAbstractItemView.SelectRows)
 
         # Setup slots
@@ -83,6 +85,10 @@ class GroupView(QTreeView):
         if not index.parent().isValid():
             if index.column() == 0:
                 self.setExpanded(index, not self.isExpanded(index))
+        else:
+            checkbox = self.model.itemFromIndex(index.siblingAtColumn(0))
+            checkbox.setCheckState(not checkbox.checkState())
+            # index.sibling(index.row(), 0).data(Qt.CheckStateRole) # This is a hack to make the checkbox work
 
     @pyqtSlot(QModelIndex)
     def on_double_clicked(self, index):
@@ -170,12 +176,7 @@ class GroupModel(QStandardItemModel):
     @staticmethod
     def append_element(group_name, info_dict):
         last_row = group_name.rowCount()
-
         icon = QStandardItem()
-        icon.setIcon(QIcon(":sample.png"))
-
-        # Set icon at column 0
-        group_name.setChild(last_row, 0, icon)
 
         # For each next column set info from the dictionary
         for column, (key, value) in enumerate(info_dict.items()):
@@ -188,7 +189,19 @@ class GroupModel(QStandardItemModel):
                 case _:
                     info = value
 
+            # Set appropriate icon
+            extension = info_dict['file_type'].lower()
+
+            if extension not in FILE_ICONS.keys():
+                extension = 'default'
+
+            icon.setIcon(QIcon(FILE_ICONS[extension]))
+            icon.setCheckable(True)
+
             group_name.setChild(last_row, column + 1, QStandardItem(info))
+
+        # Set icon at column 0
+        group_name.setChild(last_row, 0, icon)
 
     @staticmethod
     def remove_element(parent_group, row):

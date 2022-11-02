@@ -12,30 +12,28 @@ from PyQt5.QtCore import QThread, QObject, pyqtSignal, pyqtSlot
 
 
 class SearchWorker(QObject):
-    started = pyqtSignal()
     finished = pyqtSignal(object)
+    unparsed = pyqtSignal(str, object)
+    progress = pyqtSignal(int)
 
-    def __init__(self, app, search_query):
+    def __init__(self, request_batch):
         super(SearchWorker, self).__init__()
 
         # Thread nitty-gritty
         self.thread_name = None
-        self.show_errors = True
 
         self.children_finished = 0
         self.threads = {}
         self.workers = {}
 
-        # Save the main application pointer
-        self.app = app
-
         # Settings
+        self.continue_on_error = False
         self.request_wait_time = 3000
         self.limit = 100
 
-        # Store search results and get the search query from the textbox
+        # Technical
+        self.request_batch = request_batch
         self.search_results = []
-        self.search_query = search_query
 
     def destroy(self, name):
         del self.workers[name]
@@ -55,94 +53,28 @@ class SearchWorker(QObject):
 
     def error(self, error_name, error_info):
         """Stop parent and all children threads and emit an error signal"""
-        if self.show_errors:
-            time.sleep(0.5)
-            self.app.parseRequest.emit(error_name, error_info, self.thread_name)
-            self.show_errors = False
+        time.sleep(0.5)
+        self.unparsed.emit(error_name, error_info)
 
-        # Have to stop the rest of the threads
-        self.finished.emit(None)
+        # Have to stop the rest of the threads - don't know how YET!
+        for name, worker in list(self.workers.items()):
+            worker.stop()
 
-    def parse_query(self, search_query=None):
-        """Parse the search query and return a list of keywords"""
+            del self.workers[name]
+            del self.threads[name]
 
-        if not search_query:
-            self.error('no_query', None)
-            return None
-
-        # Split the query into keywords and store them in a dictionary
-        key_matches = {}
-
-        # For each keyword separated by a space filter them out
-        for items in search_query.split(' '):
-            cfilter = items.split(':')
-
-            if len(cfilter) < 2:
-                return
-
-            keyword = cfilter[0]
-            value = cfilter[1]
-
-            # If there are multiple colons in a single keyword or the keyword isn't approved, search for the next keyword
-            if len(cfilter) > 2 or keyword not in API_FILTERS.keys():
-                continue
-
-            match API_FILTERS[keyword]:
-                case 'limit':
-                    self.limit = int(value)
-
-            # If the keyword is approved and the syntax is correct, add it to the list
-            if value.startswith('"') and value.endswith('"') and len(value) > 2:
-                value = value[1:-1]
-                key_matches[API_FILTERS[keyword]] = value
-
-        # Check if at least one filter was found
-        if not key_matches:
-            return None
-
-        # API limitation
-        if self.limit > 1000:
-            self.limit = 1000
-
-        request_batch = []
-
-        # Assemble the request batch to be sent to the API
-        for key, value in key_matches.items():
-            for name in value.split(','):
-                if name:
-                    request_batch.append({
-                        'query': API_QUERIES[API_FILTERS[key]],
-                        API_FILTERS[key]: name,
-                        'limit': self.limit
-                    })
-
-        # Tidy up the request for hash
-        for request in request_batch:
-            if request['query'] == 'hash':
-                del request['limit']
-
-        # Return a request batch
-        return request_batch
+        if not self.continue_on_error:
+            self.finished.emit(None)
 
     def search(self):
         print("Search thread started")
-        self.app.responses[self.thread_name] = None
-        # Parse the search query, store keywords
-        self.request_batch = self.parse_query(self.search_query)
-
-        # If there are no keywords, exit the thread
-        if self.request_batch is None:
-            self.error('illegal_query', None)
-
-            return self.finished.emit(None)
 
         # Create threads for each request
         for i, request in enumerate(self.request_batch):
-            worker = self.workers[f'Request-{i}'] = RequestWorker(self.app, request, None, i * self.request_wait_time)
+            worker = self.workers[f'Request-{i}'] = RequestWorker(request, None, i * self.request_wait_time)
             thread = self.threads[f'Request-{i}'] = QThread()
 
             worker.moveToThread(thread)
-            worker.finished.connect(worker.deleteLater)
             worker.finished.connect(thread.quit)
             worker.finished.connect(self.wait)
 
@@ -150,6 +82,7 @@ class SearchWorker(QObject):
 
             thread.started.connect(worker.search)
             thread.finished.connect(thread.deleteLater)
+            thread.finished.connect(worker.deleteLater)
             thread.finished.connect(partial(self.destroy, f'Request-{i}'))
 
             thread.start()
@@ -157,6 +90,7 @@ class SearchWorker(QObject):
     @pyqtSlot(object)
     def wait(self, search_results):
         self.children_finished += 1
+        self.progress.emit(self.children_finished)
 
         if search_results is not None:
             self.search_results += search_results
@@ -168,23 +102,23 @@ class SearchWorker(QObject):
     def parse_data(self):
         # Remove duplicates (OR search)
         search_table = [i for n, i in enumerate(self.search_results) if i not in self.search_results[n + 1:]]
+        time.sleep(0.5)
         self.finished.emit(search_table)
 
 
 class RequestWorker(QObject):
-    started = pyqtSignal()
     errored = pyqtSignal(str, object)
     finished = pyqtSignal(object)
+    progress = pyqtSignal(int)
 
-    def __init__(self, app, request_info, additional_info, request_wait_time):
+    def __init__(self, request_info, file_info, request_wait_time):
         super().__init__()
 
         # Thread nitty-gritty
         self.thread_name = None
-        self.app = app
 
         # Request info
-        self.additional_info = additional_info
+        self.file_info = file_info
         self.request_info = request_info
         self.api_key_bazaar = '702fa1bd438c5c46e6e2a4a2e53f46a2'
         self.headers = {'API-KEY': self.api_key_bazaar}
@@ -194,16 +128,16 @@ class RequestWorker(QObject):
         self.request_repeat = 3
         self.wait_time = request_wait_time
 
+        # Debug
+        self.query = list(self.request_info.values())[1]
+
         # Response
         self.response = None
 
     def init_thread(self):
         self.thread_name = threading.current_thread().name
-        self.app.responses[self.thread_name] = None
 
-        # Tell main thread we've started
         time.sleep(self.wait_time / 1000)
-        self.started.emit()
 
     def error(self, error_name, error_info):
         self.errored.emit(error_name, error_info)
@@ -250,7 +184,6 @@ class RequestWorker(QObject):
         """Search for a sample in MalwareBazaar."""
         self.init_thread()
 
-        self.query = list(self.request_info.values())[1]
         print(f"Started search query {self.query} in thread {self.thread_name}")
 
         # Send a request to the API
@@ -303,15 +236,15 @@ class RequestWorker(QObject):
                 self.thread_name,
                 'warning',
                 'File not found',
-                f'Download failed. The following sample:\n\n{self.additional_info["file_name"]}\n\nwas not found on the download server. It might have been taken down while the search was underway. Please select a different sample to download.'
+                f'Download failed. The following sample:\n\n{self.file_info["file_name"]}\n\nwas not found on the download server. It might have been taken down while the search was underway. Please select a different sample to download.'
             )
 
             self.finished.emit(None)
         else:
-            print(f"Downloading file {self.additional_info['sha256_hash']}")
-            with open(f"{PATH}/{self.additional_info['sha256_hash']}.zip", 'wb') as file:
+            print(f"Downloading file {self.file_info['sha256_hash']}")
+            with open(f"{PATH}/{self.file_info['sha256_hash']}.zip", 'wb') as file:
                 bytes_downloaded = 0
-                bytes_total = self.additional_info['file_size']
+                bytes_total = self.file_info['file_size']
 
                 chunk_size = bytes_total // 100
 
@@ -320,12 +253,12 @@ class RequestWorker(QObject):
                     file.write(data)
 
                     # Update progress bar
-                    self.app.updateProgress.emit(int(100 * bytes_downloaded / bytes_total))
+                    self.progress.emit(int(100 * bytes_downloaded / bytes_total))
                     time.sleep(0.001)
 
-            self.app.updateProgress.emit(100)
+            self.progress.emit(100)
             time.sleep(1)
-            self.app.updateProgress.emit(0)
+            self.progress.emit(0)
 
         print("Download thread exited")
 

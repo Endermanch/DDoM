@@ -52,6 +52,54 @@ API_FILTERS = {
     'limit': 'limit'
 }
 
+FILE_ICONS = {
+    'exe': ':exe.png',
+    'sh':  ':sh.png',
+    'dll': ':lib.png',
+    'sys': ':lib.png',
+    'scr': ':scr.png',
+    'vbs': ':vbs.png',
+    'bat': ':bat.png',
+    'cmd': ':bat.png',
+    'js':  ':js.png',
+    'hta': ':hta.png',
+    'jar': ':jar.png',
+    'msi': ':msi.png',
+    'pdf': ':pdf.png',
+    'doc': ':word.png',
+    'docx': ':word.png',
+    'xls': ':excel.png',
+    'xlsx': ':excel.png',
+    'ppt': ':pp.png',
+    'pptx': ':pp.png',
+    'txt': ':text.png',
+    'rtf': ':text.png',
+    'zip': ':arch.png',
+    'rar': ':arch.png',
+    '7z': ':arch.png',
+    'tar': ':arch.png',
+    'gz': ':arch.png',
+    'xz': ':arch.png',
+    'bz2': ':arch.png',
+    'iso': ':iso.png',
+    'img': ':iso.png',
+    'bin': ':bin.png',
+    'dat': ':bin.png',
+    'db': ':lib.png',
+    'xml': ':conf.png',
+    'html': ':html.png',
+    'htm': ':html.png',
+    'xhtml': ':html.png',
+    'xht': ':html.png',
+    'php': ':html.png',
+    'asp': ':html.png',
+    'aspx': ':html.png',
+    'css': ':conf.png',
+    'py': ':py.png',
+    'unknown': ':unknown.png',
+    'default': ':default.png'
+}
+
 # About
 ABOUT_TITLE = "Malware Downloader"
 ABOUT_DESC  = "The goal of this project is to create a simple, easy to use, and free download manager for malware samples. " \
@@ -83,10 +131,10 @@ MANUAL_PAGES = {
 # API request messages (dictionary of dictionaries)
 REQUEST_STRINGS = {
     # Own error API
-    'unknown_error': {
+    'too_many_queries': {
         'severity': "critical",
-        'title': "An error occured!",
-        'message': "Unknown error."
+        'title': "It's time to STOP!",
+        'message': "You're submitting too many requests. Please wait a few seconds and try again."
     },
     'no_query': {
         'severity': "information",
@@ -97,6 +145,11 @@ REQUEST_STRINGS = {
         'severity': "warning",
         'title': "Wrong search query",
         'message': "The search query syntax is incorrect. Please try again."
+    },
+    'unknown_error': {
+        'severity': "critical",
+        'title': "An error occured!",
+        'message': "Unknown error."
     },
 
     # Requests

@@ -18,8 +18,37 @@
     <file alias="opened.png">resources/opened.png</file>
     <file alias="closed.png">resources/closed.png</file>
 
-    <file alias="sample.png">resources/sample.png</file>
-
     <file alias="search.gif">resources/search.gif</file>
+    <file alias="poke.gif">resources/poke.gif</file>
+
+    <file alias="exe.png">resources/types/exe.png</file>
+    <file alias="bin.png">resources/types/bin.png</file>
+    <file alias="jar.png">resources/types/jar.png</file>
+    <file alias="lib.png">resources/types/lib.png</file>
+    <file alias="conf.png">resources/types/conf.png</file>
+    <file alias="iso.png">resources/types/iso.png</file>
+    <file alias="media.png">resources/types/media.png</file>
+    <file alias="gif.png">resources/types/gif.png</file>
+    <file alias="png.png">resources/types/png.png</file>
+    <file alias="jpg.png">resources/types/jpg.png</file>
+    <file alias="arch.png">resources/types/arch.png</file>
+    <file alias="unknown.png">resources/types/unknown.png</file>
+    <file alias="default.png">resources/types/default.png</file>
+    <file alias="text.png">resources/types/text.png</file>
+    <file alias="sh.png">resources/types/sh.png</file>
+    <file alias="bat.png">resources/types/bat.png</file>
+    <file alias="audio.png">resources/types/audio.png</file>
+    <file alias="html.png">resources/types/html.png</file>
+    <file alias="bmp.png">resources/types/bmp.png</file>
+    <file alias="scr.png">resources/types/scr.png</file>
+    <file alias="hta.png">resources/types/hta.png</file>
+    <file alias="excel.png">resources/types/excel.png</file>
+    <file alias="word.png">resources/types/word.png</file>
+    <file alias="pp.png">resources/types/pp.png</file>
+    <file alias="js.png">resources/types/js.png</file>
+    <file alias="vbs.png">resources/types/vbs.png</file>
+    <file alias="pdf.png">resources/types/pdf.png</file>
+    <file alias="msi.png">resources/types/msi.png</file>
+    <file alias="py.png">resources/types/py.png</file>
 </qresource>
 </RCC>

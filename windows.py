@@ -213,9 +213,6 @@ class SetupWindow(Dialog):
 
 
 class MainWindow(Window):
-    parseRequest = pyqtSignal(str, object, str)
-    updateProgress = pyqtSignal(int)
-    stopSearch = pyqtSignal()
 
     def __init__(self):
         # Call the parent constructor
@@ -247,10 +244,6 @@ class MainWindow(Window):
         self.init_ui()
         self.show()
 
-        # Connect all signals
-        self.parseRequest.connect(self.parse_message)
-        self.updateProgress.connect(self.update_progress)
-
         # Search fields
         self.search_table = None
         self.search_running = False
@@ -268,7 +261,7 @@ class MainWindow(Window):
         self.setup_window.show()
 
     def dummy(self):
-        print("I'm a dummy!")
+        print("I'm a dummy! Please wait till the creator of this program adds me!")
 
     def init_menubar(self):
         menubar = QMenuBar(self)
@@ -298,20 +291,6 @@ class MainWindow(Window):
         m_about.addAction(QIcon(":url.ico"), "Website", partial(webbrowser.open, WEBSITES["Main"]))
         m_about.addAction(QIcon(":software.ico"), "GitHub", partial(webbrowser.open, WEBSITES["GitHub"]))
         m_about.addAction(QIcon(":about.ico"), "About DDoM...", self.spawn_about)
-
-    def eventFilter(self, source, event):
-        if source == self.search_box:
-            if event.type() == QEvent.KeyPress:
-                match event.key():
-                    case Qt.Key_Return:
-                        self.search()
-                        return True
-
-                    case Qt.Key_Escape:
-                        self.search_stop()
-                        return True
-
-        return super(MainWindow, self).eventFilter(source, event)
 
     def init_ui(self):
         # Labels
@@ -348,7 +327,6 @@ class MainWindow(Window):
         self.search_box.returnPressed.connect(self.search_button.click)
         self.search_box.installEventFilter(self)
 
-
         # Search label
         self.search_label = QLabel(self)
         self.search_label.setText("Search:")
@@ -358,7 +336,7 @@ class MainWindow(Window):
 
         # Set table model (fill with data)
         self.model = GroupModel(self)
-        self.model.setSortRole(Qt.UserRole)
+        # self.model.setSortRole(Qt.UserRole)
 
         self.group_view = GroupView(self.model, parent=self)
 
@@ -367,11 +345,19 @@ class MainWindow(Window):
 
         self.group_view.beginDownload.connect(self.download)
 
+        # Search progress bar
+        self.search_progress = QProgressBar(self)
+        self.search_progress.move(self.left, self.top + 60)
+        self.search_progress.resize(self.width - 20, 24)
+        self.search_progress.setTextVisible(False)
+        self.search_progress.hide()
+
         # Loading animation (centered against the group view)
         self.search_anim = QLabel(self)
         self.search_anim.setAlignment(Qt.AlignCenter)
 
-        anim_source = QMovie(":search.gif")
+        anim_source = QMovie(":poke.gif")
+        anim_source.setScaledSize(QSize(200, 200))
         anim_source.start()
 
         self.search_anim.setMovie(anim_source)
@@ -393,16 +379,93 @@ class MainWindow(Window):
         self.download_button.move(self.right - 100, self.bottom - 30)
         self.download_button.clicked.connect(partial(self.download))
 
-    def show_message_box(self, thread, severity, title, message):
+    def eventFilter(self, source, event):
+        if source == self.search_box:
+            if event.type() == QEvent.KeyPress:
+                match event.key():
+                    case Qt.Key_Return:
+                        self.search()
+                        return True
+
+                    case Qt.Key_Escape:
+                        self.search_stop()
+                        return True
+
+        return super(MainWindow, self).eventFilter(source, event)
+
+    def parse_query(self, search_query):
+        """Parse the search query and return a list of keywords"""
+        limit = 100
+
+        if not search_query:
+            self.parse_message('no_query')
+            return None
+
+        # Remove extra spaces
+        search_query = " ".join(search_query.split())
+
+        # Split the query into keywords and store them in a dictionary
+        key_matches = {}
+
+        # For each keyword separated by a space filter them out
+        for items in search_query.split(' '):
+            cfilter = items.split(':')
+
+            if len(cfilter) < 2:
+                return
+
+            keyword = cfilter[0]
+            value = cfilter[1]
+
+            # If there are multiple colons in a single keyword or the keyword isn't approved,
+            # search for the next keyword
+            if len(cfilter) > 2 or keyword not in API_FILTERS.keys():
+                continue
+
+            match API_FILTERS[keyword]:
+                case 'limit':
+                    limit = int(value)
+
+            # If the keyword is approved and the syntax is correct, add it to the list
+            if value.startswith('"') and value.endswith('"') and len(value) > 2:
+                value = value[1:-1]
+                key_matches[API_FILTERS[keyword]] = value
+
+        # Check if at least one filter was found
+        if not key_matches:
+            return None
+
+        # API limitation
+        if limit > 1000:
+            limit = 1000
+
+        request_batch = []
+
+        # Assemble the request batch to be sent to the API
+        for key, value in key_matches.items():
+            for name in value.split(','):
+                if name:
+                    request_batch.append({
+                        'query': API_QUERIES[API_FILTERS[key]],
+                        API_FILTERS[key]: name,
+                        'limit': limit
+                    })
+
+        # Tidy up the request for hash
+        for request in request_batch:
+            if request['query'] == 'hash':
+                del request['limit']
+
+        # Return a request batch
+        return request_batch
+
+    def show_message_box(self, severity, title, message):
         """Shows a message box."""
         response = getattr(QMessageBox, str(severity))(self, title, message, QMessageBox.Ok)
 
         self.message_box_shown = False
 
-        if thread is not None:
-            self.responses[str(thread)] = response
-
-    def parse_message(self, error_name, error_info, thread=None):
+    def parse_message(self, error_name, error_info=None):
         """Parses the request response and shows a messagebox."""
         if self.message_box_shown:
             return
@@ -417,17 +480,20 @@ class MainWindow(Window):
 
         self.message_box_shown = True
         self.show_message_box(
-            thread,
             REQUEST_STRINGS[error_name]['severity'],
             REQUEST_STRINGS[error_name]['title'],
             error_message,
         )
 
-    def update_progress(self, progress):
+    def update_search_progress(self, progress):
+        """Updates the search progress bar."""
+        self.search_progress.setValue(progress * 100)
+
+    def update_download_progress(self, progress):
         self.download_button.setEnabled(False)
         self.download_progress.setValue(progress)
 
-    def start_loading(self):
+    def start_loading(self, request_count):
         self.search_running = True
 
         # Turn on the search box
@@ -439,6 +505,9 @@ class MainWindow(Window):
         self.search_button.setEnabled(False)
         self.search_button.setVisible(False)
         self.search_button_cancel.setVisible(True)
+
+        self.search_progress.show()
+        self.search_progress.setMaximum(request_count * 100)
 
         self.search_anim.show()
 
@@ -457,45 +526,40 @@ class MainWindow(Window):
         self.search_button_cancel.setEnabled(True)
         self.search_button_cancel.setVisible(False)
 
+        self.search_progress.hide()
+        self.search_progress.setValue(0)
         self.search_anim.hide()
 
     def search(self):
         """Search for a tag or signature with a limit."""
-
         if self.search_running:
             return
 
-        # Receive search query from the box
-        search_query = " ".join(self.search_box.text().split())
+        # Parse the search query, create a request batch and send it to the server
+        request_batch = self.parse_query(self.search_box.text())
 
-        self.workers['Search'] = SearchWorker(self, search_query)
-        self.threads['Search'] = create_thread(
-            self.workers['Search'],
-            [self.start_loading],
-            'search',
-            [self.end_loading, self.retrieve]
-        )
+        if request_batch is None:
+            self.parse_message('illegal_query')
+            return
 
-        self.threads['Search'].start()
+        request_count = len(request_batch)
 
-        """thread = self.thread = QThread()
-        worker = self.worker = SearchWorker(self)
+        worker = self.workers['Search'] = SearchWorker(request_batch)
+        thread = self.threads['Search'] = QThread()
+
         worker.moveToThread(thread)
-
         worker.finished.connect(worker.deleteLater)
         worker.finished.connect(thread.quit)
         worker.finished.connect(self.end_loading)
-        worker.finished.connect(self.dummy)
+        worker.finished.connect(self.retrieve)
 
-        thread.started.connect(self.start_loading)
+        worker.unparsed.connect(self.parse_message)
+        worker.progress.connect(self.update_search_progress)
+
+        thread.started.connect(partial(self.start_loading, request_count))
         thread.started.connect(worker.search)
-
-        thread.start()"""
-
-        #self.stopSearch.connect(self.workers['Search'].stop)
-
-        # Start thread
-        #self.threads['Search'].start()
+        thread.finished.connect(thread.deleteLater)
+        thread.start()
 
     def search_stop(self):
         """Stop the search"""
@@ -507,8 +571,8 @@ class MainWindow(Window):
         if 'Search' in self.workers.keys():
             self.workers['Search'].stop()
 
-        #del self.threads['Search']
-        #del self.workers['Search']
+        del self.threads['Search']
+        del self.workers['Search']
 
     def retrieve(self, search_table):
         """Clean up after search"""
@@ -558,7 +622,7 @@ class MainWindow(Window):
                 index = i
 
         # Create thread
-        self.workers['Download'] = RequestWorker(self, request_info, self.search_table[index], 1000)
+        self.workers['Download'] = RequestWorker(request_info, self.search_table[index], 1000)
         self.threads['Download'] = create_thread(
             self.workers['Download'],
             [],
@@ -593,6 +657,11 @@ class MainWindow(Window):
         self.group_view.resize(
             new_right - self.group_view.geometry().left(),
             new_bottom - (self.group_view.geometry().top() + 40)
+        )
+
+        self.search_progress.resize(
+            new_right - self.search_progress.geometry().left(),
+            self.search_progress.height()
         )
 
         self.download_progress.setGeometry(
