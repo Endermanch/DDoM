@@ -42,20 +42,26 @@ class SearchWorker(QObject):
         del self.threads[name]
 
     def stop(self):
+        """Stop all threads, it's different from the error stop!"""
         print("Search thread stopped")
 
         for name, worker in list(self.workers.items()):
             worker.stop()
 
+            del self.workers[name]
+            del self.threads[name]
+
         self.finished.emit(None)
 
     def error(self, error_name, error_info):
+        """Stop parent and all children threads and emit an error signal"""
         if self.show_errors:
             time.sleep(0.5)
             self.app.parseRequest.emit(error_name, error_info, self.thread_name)
             self.show_errors = False
 
-        self.stop()
+        # Have to stop the rest of the threads
+        self.finished.emit(None)
 
     def parse_query(self, search_query=None):
         """Parse the search query and return a list of keywords"""
@@ -138,13 +144,13 @@ class SearchWorker(QObject):
             worker.moveToThread(thread)
             worker.finished.connect(worker.deleteLater)
             worker.finished.connect(thread.quit)
-            worker.finished.connect(partial(self.destroy, f'Request-{i}'))
             worker.finished.connect(self.wait)
 
             worker.errored.connect(self.error)
 
             thread.started.connect(worker.search)
             thread.finished.connect(thread.deleteLater)
+            thread.finished.connect(partial(self.destroy, f'Request-{i}'))
 
             thread.start()
 
@@ -184,7 +190,7 @@ class RequestWorker(QObject):
         self.headers = {'API-KEY': self.api_key_bazaar}
 
         # Settings
-        self.request_timeout = 1
+        self.request_timeout = 30
         self.request_repeat = 3
         self.wait_time = request_wait_time
 
@@ -205,7 +211,7 @@ class RequestWorker(QObject):
         self.stop()
 
     def stop(self):
-        print("Request thread received stop signal")
+        print(f"Request thread for query {self.query} received stop signal")
         self.finished.emit(None)
 
     def send_request(self):
@@ -243,40 +249,43 @@ class RequestWorker(QObject):
     def search(self):
         """Search for a sample in MalwareBazaar."""
         self.init_thread()
-        print("NESTED THREAD STARTED")
+
+        self.query = list(self.request_info.values())[1]
+        print(f"Started search query {self.query} in thread {self.thread_name}")
 
         # Send a request to the API
         response = self.send_request()
 
         if response is None:
-            return self.finished.emit(None)
+            return self.stop()
 
         self.response = response.json()
 
         # If query status is OK, parse the response into a resulting list of tuples
         if self.response['query_status'] != 'ok':
             # Emit a signal to the main thread to display an error message
+            print(f"Query {self.query} returned an error: {self.response['query_status']}")
             return self.errored.emit(self.response['query_status'], [list(self.request_info.values())[1]])
-        else:
-            # Generate a list of dictionaries from the response
-            samples_info = [
-                {
-                    'file_name': sample['file_name'],
-                    'file_type': sample['file_type'],
-                    'file_size': sample['file_size'],
-                    'signature': sample['signature'],
-                    'sha256_hash': sample['sha256_hash'],
-                    'first_seen': sample['first_seen'],
-                    'downloads': sample['intelligence']['downloads'],
-                    'uploads': sample['intelligence']['uploads'],
-                    'tags': sample['tags']
-                }
 
-                for sample in self.response['data']
-            ]
+        # Generate a list of dictionaries from the response
+        samples_info = [
+            {
+                'file_name': sample['file_name'],
+                'file_type': sample['file_type'],
+                'file_size': sample['file_size'],
+                'signature': sample['signature'],
+                'sha256_hash': sample['sha256_hash'],
+                'first_seen': sample['first_seen'],
+                'downloads': sample['intelligence']['downloads'],
+                'uploads': sample['intelligence']['uploads'],
+                'tags': sample['tags']
+            }
+
+            for sample in self.response['data']
+        ]
 
         # We found some samples, emit a signal to the main thread to display them
-        print("NESTED THREAD FINISHED")
+        print(f"Response for {self.query} was received, returning sample info")
         self.finished.emit(samples_info)
 
     def download(self):

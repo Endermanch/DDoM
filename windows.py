@@ -214,7 +214,6 @@ class SetupWindow(Dialog):
 
 class MainWindow(Window):
     parseRequest = pyqtSignal(str, object, str)
-    showMessage = pyqtSignal(str, str, str, str)
     updateProgress = pyqtSignal(int)
     stopSearch = pyqtSignal()
 
@@ -230,6 +229,8 @@ class MainWindow(Window):
         self.threads = {}
         self.workers = {}
         self.responses = {}
+
+        self.message_box_shown = False
 
         # Change window color
         palette = self.palette()
@@ -248,10 +249,11 @@ class MainWindow(Window):
 
         # Connect all signals
         self.parseRequest.connect(self.parse_message)
-        self.showMessage.connect(self.show_message_box)
         self.updateProgress.connect(self.update_progress)
 
+        # Search fields
         self.search_table = None
+        self.search_running = False
 
     @staticmethod
     def spawn_about():
@@ -297,6 +299,20 @@ class MainWindow(Window):
         m_about.addAction(QIcon(":software.ico"), "GitHub", partial(webbrowser.open, WEBSITES["GitHub"]))
         m_about.addAction(QIcon(":about.ico"), "About DDoM...", self.spawn_about)
 
+    def eventFilter(self, source, event):
+        if source == self.search_box:
+            if event.type() == QEvent.KeyPress:
+                match event.key():
+                    case Qt.Key_Return:
+                        self.search()
+                        return True
+
+                    case Qt.Key_Escape:
+                        self.search_stop()
+                        return True
+
+        return super(MainWindow, self).eventFilter(source, event)
+
     def init_ui(self):
         # Labels
         self.title_label = QLabel(self)
@@ -330,6 +346,8 @@ class MainWindow(Window):
         self.search_box.move(self.right - 500, self.top)
         self.search_box.setPlaceholderText("Enter a tag, SHA256, MD5 hash...")
         self.search_box.returnPressed.connect(self.search_button.click)
+        self.search_box.installEventFilter(self)
+
 
         # Search label
         self.search_label = QLabel(self)
@@ -379,11 +397,15 @@ class MainWindow(Window):
         """Shows a message box."""
         response = getattr(QMessageBox, str(severity))(self, title, message, QMessageBox.Ok)
 
+        self.message_box_shown = False
+
         if thread is not None:
             self.responses[str(thread)] = response
 
     def parse_message(self, error_name, error_info, thread=None):
         """Parses the request response and shows a messagebox."""
+        if self.message_box_shown:
+            return
 
         if error_name not in REQUEST_STRINGS.keys():
             error_name = 'unknown_error'
@@ -393,6 +415,7 @@ class MainWindow(Window):
         if error_info is not None:
             error_message = error_message.format(*error_info)
 
+        self.message_box_shown = True
         self.show_message_box(
             thread,
             REQUEST_STRINGS[error_name]['severity'],
@@ -405,6 +428,8 @@ class MainWindow(Window):
         self.download_progress.setValue(progress)
 
     def start_loading(self):
+        self.search_running = True
+
         # Turn on the search box
         if self.search_box.isSignalConnected(getSignal(self.search_box, 'returnPressed')):
             self.search_box.returnPressed.disconnect(self.search_button.click)
@@ -418,6 +443,8 @@ class MainWindow(Window):
         self.search_anim.show()
 
     def end_loading(self):
+        self.search_running = False
+
         # Turn off the search box
         if not self.search_box.isSignalConnected(getSignal(self.search_box, 'returnPressed')):
             self.search_box.returnPressed.connect(self.search_button.click)
@@ -434,6 +461,9 @@ class MainWindow(Window):
 
     def search(self):
         """Search for a tag or signature with a limit."""
+
+        if self.search_running:
+            return
 
         # Receive search query from the box
         search_query = " ".join(self.search_box.text().split())
@@ -469,8 +499,13 @@ class MainWindow(Window):
 
     def search_stop(self):
         """Stop the search"""
+        if not self.search_running:
+            return
+
         self.search_button_cancel.setEnabled(False)
-        self.workers['Search'].stop()
+
+        if 'Search' in self.workers.keys():
+            self.workers['Search'].stop()
 
         #del self.threads['Search']
         #del self.workers['Search']
