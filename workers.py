@@ -6,23 +6,23 @@ import re
 
 from utilities import *
 from strings import *
-from http.client import responses
 
+from functools import partial
 from PyQt5.QtCore import QThread, QObject, pyqtSignal, pyqtSlot
 
 
 class SearchWorker(QObject):
     started = pyqtSignal()
-    finished = pyqtSignal()
-    stopped = pyqtSignal()
+    finished = pyqtSignal(object)
 
-    def __init__(self, app):
+    def __init__(self, app, search_query):
         super(SearchWorker, self).__init__()
 
         # Thread nitty-gritty
         self.thread_name = None
-        self.thread_end = False
-        self.finished_count = 0
+        self.show_errors = True
+
+        self.children_finished = 0
         self.threads = {}
         self.workers = {}
 
@@ -30,18 +30,35 @@ class SearchWorker(QObject):
         self.app = app
 
         # Settings
-        self.request_wait_time = 1000
+        self.request_wait_time = 3000
         self.limit = 100
 
-        # Search results
+        # Store search results and get the search query from the textbox
         self.search_results = []
-        self.search_table = []
+        self.search_query = search_query
 
-    def parse_query(self):
+    def destroy(self, name):
+        del self.workers[name]
+        del self.threads[name]
+
+    def stop(self):
+        print("Search thread stopped")
+
+        for name, worker in list(self.workers.items()):
+            worker.stop()
+
+        self.finished.emit(None)
+
+    def error(self, error_name, error_info):
+        if self.show_errors:
+            time.sleep(0.5)
+            self.app.parseRequest.emit(error_name, error_info, self.thread_name)
+            self.show_errors = False
+
+        self.stop()
+
+    def parse_query(self, search_query=None):
         """Parse the search query and return a list of keywords"""
-
-        # Receive search query from the box
-        search_query = " ".join(self.app.search_box.text().split())
 
         if not search_query:
             self.error('no_query', None)
@@ -101,46 +118,30 @@ class SearchWorker(QObject):
         # Return a request batch
         return request_batch
 
-    def error(self, error_name, error_info):
-        if not self.thread_end:
-            time.sleep(0.5)
-            self.app.parseRequest.emit(error_name, self.thread_name)
-
-        for thread in self.threads.values():
-            self.stopped.emit()
-
-    def stop(self):
-        self.thread_end = True
-        self.finished.emit()
-
     def search(self):
         print("Search thread started")
         self.app.responses[self.thread_name] = None
         # Parse the search query, store keywords
-        self.request_batch = self.parse_query()
+        self.request_batch = self.parse_query(self.search_query)
 
         # If there are no keywords, exit the thread
         if self.request_batch is None:
             self.error('illegal_query', None)
 
-            return self.finished.emit()
+            return self.finished.emit(None)
 
         # Create threads for each request
         for i, request in enumerate(self.request_batch):
             worker = self.workers[f'Request-{i}'] = RequestWorker(self.app, request, None, i * self.request_wait_time)
             thread = self.threads[f'Request-{i}'] = QThread()
 
-            self.finished.connect(worker.stop)
-
             worker.moveToThread(thread)
             worker.finished.connect(worker.deleteLater)
             worker.finished.connect(thread.quit)
+            worker.finished.connect(partial(self.destroy, f'Request-{i}'))
             worker.finished.connect(self.wait)
 
-            worker.errored.connect(worker.deleteLater)
-            worker.errored.connect(thread.quit)
             worker.errored.connect(self.error)
-            worker.errored.connect(self.stop)
 
             thread.started.connect(worker.search)
             thread.finished.connect(thread.deleteLater)
@@ -149,53 +150,19 @@ class SearchWorker(QObject):
 
     @pyqtSlot(object)
     def wait(self, search_results):
-        self.finished_count += 1
+        self.children_finished += 1
 
         if search_results is not None:
             self.search_results += search_results
 
-        if self.finished_count == len(self.request_batch):
+        if self.children_finished == len(self.request_batch):
             print("All request threads have finished.")
             self.parse_data()
 
     def parse_data(self):
         # Remove duplicates (OR search)
-        self.search_table = [i for n, i in enumerate(self.search_results) if i not in self.search_results[n + 1:]]
-
-        self.retrieve()
-        self.finished.emit()
-
-    def retrieve(self):
-        """Clean up after search"""
-        self.app.search_table = self.search_table
-
-        if self.search_table is None or not self.search_table:
-            return
-
-        # Remove previous search results
-        self.app.model.removeRows(0, self.app.model.rowCount())
-
-        # Get appropriate group, if it doesn't exist, create
-        section = self.app.model.get_group('MalwareBazaar')
-
-        if section is None:
-            section = self.app.model.add_group('MalwareBazaar')
-
-        # Populate it with samples (post process it)
-        for sample in self.search_table:
-            self.app.model.append_element(section, sample)
-
-        # Acquire the groups
-        root = self.app.model.invisibleRootItem()
-        rows = root.rowCount()
-
-        # Expand on demand
-        self.app.group_view.expandAll()
-
-        #for root_items in range(rows):
-        #    if root.child(root_items).index().sibling(0, 1).data(Qt.DisplayRole) == "MalwareBazaar":
-        #        if not self.app.group_view.isExpanded(root.child(root_items).index()):
-        #            self.app.group_view.expand(root.child(root_items).index())
+        search_table = [i for n, i in enumerate(self.search_results) if i not in self.search_results[n + 1:]]
+        self.finished.emit(search_table)
 
 
 class RequestWorker(QObject):
@@ -217,9 +184,10 @@ class RequestWorker(QObject):
         self.headers = {'API-KEY': self.api_key_bazaar}
 
         # Settings
-        self.request_timeout = 30
+        self.request_timeout = 1
         self.request_repeat = 3
         self.wait_time = request_wait_time
+
         # Response
         self.response = None
 
@@ -233,6 +201,11 @@ class RequestWorker(QObject):
 
     def error(self, error_name, error_info):
         self.errored.emit(error_name, error_info)
+
+        self.stop()
+
+    def stop(self):
+        print("Request thread received stop signal")
         self.finished.emit(None)
 
     def send_request(self):
@@ -257,13 +230,13 @@ class RequestWorker(QObject):
                     time.sleep(self.request_timeout // 6)
 
             except requests.exceptions.ConnectionError as e:
-                return self.errored.emit('connection_error', (e))
+                return self.errored.emit('connection_error', [e])
 
             except requests.exceptions.HTTPError:
-                return self.errored.emit('http_error', (response.status_code))
+                return self.errored.emit('http_error', [response.status_code])
 
         if isinstance(response, requests.exceptions.Timeout):
-            return self.errored.emit('timeout', (response, self.request_timeout, self.request_repeat))
+            return self.errored.emit('timeout', [response, self.request_timeout, self.request_repeat])
 
         return response
 
@@ -283,10 +256,7 @@ class RequestWorker(QObject):
         # If query status is OK, parse the response into a resulting list of tuples
         if self.response['query_status'] != 'ok':
             # Emit a signal to the main thread to display an error message
-            self.errored.emit(self.response['query_status'], None)
-
-            # Emit a signal to the main thread to reset the animation
-            return self.finished.emit(None)
+            return self.errored.emit(self.response['query_status'], [list(self.request_info.values())[1]])
         else:
             # Generate a list of dictionaries from the response
             samples_info = [
@@ -364,7 +334,3 @@ class RequestWorker(QObject):
             zf.pwd = zip_password
             my_secrets = zf.extractall(".")
             print("Malicious sample \"" + sha256_hash + "\" unpacked.")
-
-    def stop(self):
-        print("Request thread received stop signal")
-        self.finished.emit(None)

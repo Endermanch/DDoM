@@ -9,6 +9,7 @@ from groupview import *
 from strings import *
 from utilities import *
 
+from http.client import responses
 from functools import partial
 
 from PyQt5.QtCore import *
@@ -212,7 +213,7 @@ class SetupWindow(Dialog):
 
 
 class MainWindow(Window):
-    parseRequest = pyqtSignal(str, str)
+    parseRequest = pyqtSignal(str, object, str)
     showMessage = pyqtSignal(str, str, str, str)
     updateProgress = pyqtSignal(int)
     stopSearch = pyqtSignal()
@@ -263,6 +264,9 @@ class MainWindow(Window):
     def spawn_setup(self):
         self.setup_window = SetupWindow()
         self.setup_window.show()
+
+    def dummy(self):
+        print("I'm a dummy!")
 
     def init_menubar(self):
         menubar = QMenuBar(self)
@@ -378,17 +382,22 @@ class MainWindow(Window):
         if thread is not None:
             self.responses[str(thread)] = response
 
-    def parse_message(self, error_name, thread=None):
+    def parse_message(self, error_name, error_info, thread=None):
         """Parses the request response and shows a messagebox."""
 
         if error_name not in REQUEST_STRINGS.keys():
             error_name = 'unknown_error'
 
+        error_message = REQUEST_STRINGS[error_name]['message']
+
+        if error_info is not None:
+            error_message = error_message.format(*error_info)
+
         self.show_message_box(
             thread,
             REQUEST_STRINGS[error_name]['severity'],
             REQUEST_STRINGS[error_name]['title'],
-            REQUEST_STRINGS[error_name]['message'],
+            error_message,
         )
 
     def update_progress(self, progress):
@@ -402,7 +411,7 @@ class MainWindow(Window):
 
         # Start loading animation
         self.group_view.setEnabled(False)
-
+        self.search_button.setEnabled(False)
         self.search_button.setVisible(False)
         self.search_button_cancel.setVisible(True)
 
@@ -417,22 +426,24 @@ class MainWindow(Window):
         self.group_view.setEnabled(True)
 
         self.search_button.setVisible(True)
+        self.search_button.setEnabled(True)
         self.search_button_cancel.setEnabled(True)
         self.search_button_cancel.setVisible(False)
 
         self.search_anim.hide()
 
-    def dummy(self):
-        print("Thread successfully finished")
-
     def search(self):
         """Search for a tag or signature with a limit."""
-        self.workers['Search'] = SearchWorker(self)
+
+        # Receive search query from the box
+        search_query = " ".join(self.search_box.text().split())
+
+        self.workers['Search'] = SearchWorker(self, search_query)
         self.threads['Search'] = create_thread(
             self.workers['Search'],
             [self.start_loading],
             'search',
-            [self.end_loading, self.dummy]
+            [self.end_loading, self.retrieve]
         )
 
         self.threads['Search'].start()
@@ -463,6 +474,38 @@ class MainWindow(Window):
 
         #del self.threads['Search']
         #del self.workers['Search']
+
+    def retrieve(self, search_table):
+        """Clean up after search"""
+        self.search_table = search_table
+
+        if self.search_table is None or not self.search_table:
+            return
+
+        # Remove previous search results
+        self.model.removeRows(0, self.model.rowCount())
+
+        # Get appropriate group, if it doesn't exist, create
+        section = self.model.get_group('MalwareBazaar')
+
+        if section is None:
+            section = self.model.add_group('MalwareBazaar')
+
+        # Populate it with samples (post process it)
+        for sample in self.search_table:
+            self.model.append_element(section, sample)
+
+        # Acquire the groups
+        root = self.model.invisibleRootItem()
+        rows = root.rowCount()
+
+        # Expand on demand
+        self.group_view.expandAll()
+
+        #for root_items in range(rows):
+        #    if root.child(root_items).index().sibling(0, 1).data(Qt.DisplayRole) == "MalwareBazaar":
+        #        if not self.app.group_view.isExpanded(root.child(root_items).index()):
+        #            self.app.group_view.expand(root.child(root_items).index())
 
     def download(self, sha256_hash):
         """Download the selected sample"""

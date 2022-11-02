@@ -103,17 +103,17 @@ REQUEST_STRINGS = {
     'connection_error': {
         'severity': 'critical',
         'title': 'An error occured!',
-        'message': 'Connection error:\n\n%s\n\nPlease check your Internet connection and try again.'
+        'message': 'Connection error:\n\n{}\n\nPlease check your Internet connection and try again.'
     },
     'http_error': {
         'severity': 'critical',
         'title': 'An error occured!',
-        'message': 'HTTP Error %s: %s\nPlease try again in a little bit.'
+        'message': 'HTTP Error {}: {}\nPlease try again in a little bit.'
     },
     'timeout': {
         'severity': 'critical',
         'title': 'An error occured!',
-        'message': 'API request failed with a timeout:\n\n%s\n\nYou can adjust session timeout in settings or try again. Current value is %s second(-s). The session has timed out a total of %s time(-s).'
+        'message': 'API request failed with a timeout:\n\n{}\n\nYou can adjust session timeout in settings or try again. Current value is {} second(-s). The session has timed out a total of {} time(-s).'
     },
 
     # MalwareBazaar API
@@ -130,7 +130,7 @@ REQUEST_STRINGS = {
     'no_results': {
         'severity': "information",
         'title': "No results",
-        'message': "The search query did not match any malware samples.\nPlease try again with different keywords."
+        'message': "The search query '{}' did not match any malware samples.\nPlease try again with different keywords."
     },
 
     'illegal_signature': {
