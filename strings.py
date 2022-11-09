@@ -27,6 +27,13 @@ TREE_HEADER = {
     'Tags': 100
 }
 
+# Sources
+API_SOURCES = {
+    'MalwareBazaar': "https://mb-api.abuse.ch/api/v1/",
+    'MalShare': "https://malshare.com/api.php",
+    'VirusShare': "https://virusshare.com/apiv2/"
+}
+
 # Connect queries to satisfy request syntax
 API_QUERIES = {
     'signature': 'get_siginfo',

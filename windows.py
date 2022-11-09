@@ -15,7 +15,7 @@ from functools import partial
 from PyQt5.QtCore import *
 from PyQt5.QtWidgets import *
 from PyQt5.QtGui import *
-# Basic safety
+
 
 class Window(QMainWindow):
     def __init__(self, width, height, title, icon, parent=None):
@@ -213,6 +213,7 @@ class SetupWindow(Dialog):
 
 
 class MainWindow(Window):
+    cancel = pyqtSignal()
 
     def __init__(self):
         # Call the parent constructor
@@ -393,6 +394,50 @@ class MainWindow(Window):
 
         return super(MainWindow, self).eventFilter(source, event)
 
+    @pyqtSlot(QResizeEvent)
+    def resizeEvent(self, event):
+        new_dimensions = event.size()
+
+        new_right = new_dimensions.width() - self.width + self.right
+        new_bottom = new_dimensions.height() - self.height + self.bottom
+
+        self.search_box.resize(
+            new_right - (self.search_box.geometry().left() + self.search_button.width() + 5),
+            self.search_box.height()
+        )
+
+        self.search_button.move(
+            new_right - self.search_button.width(),
+            self.search_button.geometry().top()
+        )
+
+        self.search_button_cancel.move(
+            new_right - self.search_button_cancel.width(),
+            self.search_button_cancel.geometry().top()
+        )
+
+        self.group_view.resize(
+            new_right - self.group_view.geometry().left(),
+            new_bottom - (self.group_view.geometry().top() + 40)
+        )
+
+        self.search_progress.resize(
+            new_right - self.search_progress.geometry().left(),
+            self.search_progress.height()
+        )
+
+        self.download_progress.setGeometry(
+            self.download_progress.geometry().left(),
+            new_bottom - self.download_button.height(),
+            new_right - (self.download_button.width() + 10),
+            self.download_progress.height()
+        )
+
+        self.download_button.move(
+            new_right - self.download_button.width(),
+            new_bottom - self.download_button.height()
+        )
+
     def parse_query(self, search_query):
         """Parse the search query and return a list of keywords"""
         limit = 100
@@ -512,8 +557,6 @@ class MainWindow(Window):
         self.search_anim.show()
 
     def end_loading(self):
-        self.search_running = False
-
         # Turn off the search box
         if not self.search_box.isSignalConnected(getSignal(self.search_box, 'returnPressed')):
             self.search_box.returnPressed.connect(self.search_button.click)
@@ -530,55 +573,71 @@ class MainWindow(Window):
         self.search_progress.setValue(0)
         self.search_anim.hide()
 
+        self.search_running = False
+
     def search(self):
         """Search for a tag or signature with a limit."""
         if self.search_running:
             return
 
         # Parse the search query, create a request batch and send it to the server
+
+        if not self.search_box.text():
+            return self.parse_message('no_query')
+
         request_batch = self.parse_query(self.search_box.text())
 
         if request_batch is None:
-            self.parse_message('illegal_query')
-            return
+            return self.parse_message('illegal_query')
 
         request_count = len(request_batch)
 
         worker = self.workers['Search'] = SearchWorker(request_batch)
-        thread = self.threads['Search'] = QThread()
+        thread = self.threads['Search'] = QThread(parent=self)
+
+        thread.setObjectName('Search')
 
         worker.moveToThread(thread)
         worker.finished.connect(worker.deleteLater)
         worker.finished.connect(thread.quit)
+
+        self.cancel.connect(worker.stop)
+
         worker.finished.connect(self.end_loading)
         worker.finished.connect(self.retrieve)
-
-        worker.unparsed.connect(self.parse_message)
+        worker.errorred.connect(self.parse_message)
         worker.progress.connect(self.update_search_progress)
+        worker.ready.connect(self.ready)
 
-        thread.started.connect(partial(self.start_loading, request_count))
         thread.started.connect(worker.search)
         thread.finished.connect(thread.deleteLater)
+
         thread.start()
+        self.start_loading(request_count)
+
+    def ready(self):
+        self.search_button_cancel.setEnabled(False)
+        self.search_running = False
 
     def search_stop(self):
         """Stop the search"""
+        print("Cancel button pressed")
+
         if not self.search_running:
             return
 
-        self.search_button_cancel.setEnabled(False)
+        self.cancel.emit()
+        self.ready()
 
         if 'Search' in self.workers.keys():
-            self.workers['Search'].stop()
-
-        del self.threads['Search']
-        del self.workers['Search']
+            self.threads['Search'].quit()
+            self.threads['Search'].wait()
 
     def retrieve(self, search_table):
         """Clean up after search"""
         self.search_table = search_table
 
-        if self.search_table is None or not self.search_table:
+        if not self.search_table:
             return
 
         # Remove previous search results
@@ -598,9 +657,10 @@ class MainWindow(Window):
         root = self.model.invisibleRootItem()
         rows = root.rowCount()
 
-        # Expand on demand
+        # Expand all groups
         self.group_view.expandAll()
 
+        # Expand on demand (future version)
         #for root_items in range(rows):
         #    if root.child(root_items).index().sibling(0, 1).data(Qt.DisplayRole) == "MalwareBazaar":
         #        if not self.app.group_view.isExpanded(root.child(root_items).index()):
@@ -631,47 +691,3 @@ class MainWindow(Window):
         )
 
         self.threads['Download'].start()
-
-    @pyqtSlot(QResizeEvent)
-    def resizeEvent(self, event):
-        new_dimensions = event.size()
-
-        new_right = new_dimensions.width() - self.width + self.right
-        new_bottom = new_dimensions.height() - self.height + self.bottom
-
-        self.search_box.resize(
-            new_right - (self.search_box.geometry().left() + self.search_button.width() + 5),
-            self.search_box.height()
-        )
-
-        self.search_button.move(
-            new_right - self.search_button.width(),
-            self.search_button.geometry().top()
-        )
-
-        self.search_button_cancel.move(
-            new_right - self.search_button_cancel.width(),
-            self.search_button_cancel.geometry().top()
-        )
-
-        self.group_view.resize(
-            new_right - self.group_view.geometry().left(),
-            new_bottom - (self.group_view.geometry().top() + 40)
-        )
-
-        self.search_progress.resize(
-            new_right - self.search_progress.geometry().left(),
-            self.search_progress.height()
-        )
-
-        self.download_progress.setGeometry(
-            self.download_progress.geometry().left(),
-            new_bottom - self.download_button.height(),
-            new_right - (self.download_button.width() + 10),
-            self.download_progress.height()
-        )
-
-        self.download_button.move(
-            new_right - self.download_button.width(),
-            new_bottom - self.download_button.height()
-        )

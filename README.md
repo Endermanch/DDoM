@@ -77,6 +77,7 @@ Daily Dose of Malware is written in an interpretable language, therefore **cross
 * Basic technical skills :wink:
 
 ## Known bugs
+- [ ] Threads don't want to quit, resulting in thread spam and eventual crash
 - [ ] Sorting for non-string values is broken
 - [ ] Cancel button sets half-found search results  
 - [ ] Application crashes while parsing huge chunks of data

@@ -36,11 +36,15 @@ class GroupView(QTreeView):
 
         self.model = model
 
+        # Overload default models
         self.setModel(model)
-        self.setHeader(QHeaderView(Qt.Horizontal, self))
+        self.setSelectionModel(QItemSelectionModel(self.model, self))
 
+        # Set up the header
+        self.setHeader(QHeaderView(Qt.Horizontal, self))
         self.init_header()
 
+        # Set up the icon delegate
         custom_delegate = IconDelegate(self)
         self.setItemDelegateForColumn(0, custom_delegate)
 
@@ -124,7 +128,13 @@ class GroupView(QTreeView):
 
 
 class GroupSort(QSortFilterProxyModel):
-    pass
+    def __init__(self, parent=None):
+        super(GroupSort, self).__init__(parent)
+
+
+class GroupSelection(QItemSelectionModel):
+    def __init__(self, parent=None):
+        super(GroupSelection, self).__init__(parent)
 
 
 class GroupModel(QStandardItemModel):
